@@ -76,11 +76,21 @@ def functionSelect(command_input, response):
         flask_app.modeselect('watchDog')
 
     elif 'stopCV' == command_input:
+
+        # Check whether autonomous driving was active.
+        auto_was_running = (
+            flask_app.camera.modeSelect == 'findlineCV'
+        )
+
+        # Stop camera autonomous mode first.
         flask_app.modeselect('none')
 
-        # Stop autonomous walking.
-        SpiderG.servoStop()
-        SpiderG.move_init()
+        # Stop spider walking only when AUTO mode was running.
+        if auto_was_running:
+            SpiderG.move_init()
+            SpiderG.servoStop()
+
+            print('[AUTO] Autonomous driving stopped')
 
         switch.switch(1, 0)
         switch.switch(2, 0)
@@ -91,8 +101,6 @@ def functionSelect(command_input, response):
         switch.switch(1, 0)
         switch.switch(2, 0)
         switch.switch(3, 0)
-
-        print('[AUTO] Autonomous driving stopped')
 
     elif 'police' == command_input:
         RL.police()
@@ -452,17 +460,17 @@ async def recv_msg(websocket):
             elif 'PT' == data:
                 modeSelect = 'PT'
 
-            # CVFL - Autonomous black line following
+            # CVFL - Autonomous Driving START
             elif 'CVFL' == data:
 
-                # Use black line for this mission.
-                flask_app.camera.colorSet(0)
-
-                # Start autonomous driving mode.
+                # Start yellow sign detection.
                 flask_app.modeselect('findlineCV')
 
+                # Start moving forward immediately.
+                SpiderG.walk('forward')
+
                 print('[AUTO] Autonomous driving started')
-                print('[AUTO] Line color: BLACK')
+                print('[AUTO] FORWARD START')
 
             elif 'CVFLColorSet' in data:
                 color = int(data.split()[1])

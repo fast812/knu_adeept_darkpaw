@@ -10,8 +10,8 @@ import time
 import threading
 import imutils
 import robotLight
-import libcamera
 import SpiderG
+import libcamera
 from picamera2 import Picamera2
 
 light = robotLight.RobotLight()
@@ -24,45 +24,45 @@ pid.SetKi(0)
 CVRun = 1
 linePos_1 = 440
 linePos_2 = 380
-
-# Black line = 0
-lineColorSet = 0
-
+lineColorSet = 255
 frameRender = 1
 findLineError = 20
 
 colorUpper = np.array([44, 255, 255])
 colorLower = np.array([24, 100, 100])
 
+# ============================================================
+# AUTONOMOUS DRIVING SETTINGS
+# ============================================================
+
+# Yellow color range in HSV
+YELLOW_LOWER = np.array([20, 100, 100])
+YELLOW_UPPER = np.array([40, 255, 255])
+
 
 # ============================================================
-# PARAM TUNING - AUTONOMOUS DRIVING
-# ============================================================
-
 # PARAM TUNING - Yellow Sign Area
 # Increase this value to turn closer to the yellow sign.
 # Decrease this value to turn earlier.
+# ============================================================
 YELLOW_TRIGGER_AREA = 18000
 
 
+# ============================================================
 # PARAM TUNING - Right Turn Time
 # Increase this value for a larger right turn.
 # Decrease this value for a smaller right turn.
+# ============================================================
 RIGHT_TURN_TIME = 2.0
 
 
-# Number of consecutive frames required to confirm the yellow sign.
+# Number of consecutive frames required to confirm detection
 YELLOW_CONFIRM_FRAMES = 3
 
-# The detector is armed again after the yellow area becomes smaller
-# than this value.
+
+# Yellow area must become smaller than this value
+# before the next yellow sign can be detected.
 YELLOW_RELEASE_AREA = 3000
-
-
-# Yellow HSV range.
-# Normally, students do not need to change these values.
-YELLOW_LOWER = np.array([20, 100, 100])
-YELLOW_UPPER = np.array([40, 255, 255])
 
 def get_rpi_os_version():
     try:
@@ -126,7 +126,7 @@ class CVThread(threading.Thread):
 
         self.center = None
 
-        # Yellow sign detection status
+        # Autonomous yellow sign detection
         self.yellow_area = 0.0
         self.yellow_x = None
         self.yellow_y = None
@@ -137,11 +137,11 @@ class CVThread(threading.Thread):
         self.yellow_latched = False
         self.yellow_status = 'SEARCHING'
 
-        # Current walking command
-        self.drive_command = None
+        # Right turn state
+        self.turning_right = False
+        self.turn_end_time = 0.0
 
         super(CVThread, self).__init__(*args, **kwargs)
-        
         self.__flag = threading.Event()
         self.__flag.clear()
 
@@ -153,11 +153,9 @@ class CVThread(threading.Thread):
         self.cnts = None
 
     def mode(self, invar, imgInput):
-        # Stop walking when leaving autonomous line-following mode.
-        if self.CVMode == 'findlineCV' and invar != 'findlineCV':
-            self._setWalkCommand('stop')
 
-        # Reset autonomous-driving status when entering line-following mode.
+        # Reset autonomous driving state
+        # when autonomous mode starts.
         if invar == 'findlineCV' and self.CVMode != 'findlineCV':
             self.yellow_area = 0.0
             self.yellow_x = None
@@ -169,7 +167,8 @@ class CVThread(threading.Thread):
             self.yellow_latched = False
             self.yellow_status = 'SEARCHING'
 
-            self.drive_command = None
+            self.turning_right = False
+            self.turn_end_time = 0.0
 
         self.CVMode = invar
         self.imgCV = imgInput
@@ -191,121 +190,26 @@ class CVThread(threading.Thread):
                 cv2.rectangle(imgInput,(int(self.box_x-self.radius),int(self.box_y+self.radius)),(int(self.box_x+self.radius),int(self.box_y-self.radius)),(255,255,255),1)
 
         elif self.CVMode == 'findlineCV':
-            if frameRender:
-                gray = cv2.cvtColor(imgInput, cv2.COLOR_BGR2GRAY)
-                _, binary = cv2.threshold(
-                    gray,
-                    0,
-                    255,
-                    cv2.THRESH_OTSU
-                )
-                binary = cv2.erode(binary, None, iterations=6)
 
-                # Convert back to BGR so colored debug information
-                # can be displayed on the web video.
-                imgInput = cv2.cvtColor(
-                    binary,
-                    cv2.COLOR_GRAY2BGR
-                )
+            # Autonomous driving status
+            cv2.putText(
+                imgInput,
+                'AUTO DRIVE',
+                (30, 40),
+                CVThread.font,
+                0.6,
+                (255, 255, 255),
+                2,
+                cv2.LINE_AA
+            )
 
-            if lineColorSet == 255:
-                cv2.putText(
-                    imgInput,
-                    'Following White Line',
-                    (30, 50),
-                    CVThread.font,
-                    0.5,
-                    (128, 255, 128),
-                    1,
-                    cv2.LINE_AA
-                )
-            else:
-                cv2.putText(
-                    imgInput,
-                    'Following Black Line',
-                    (30, 50),
-                    CVThread.font,
-                    0.5,
-                    (128, 255, 128),
-                    1,
-                    cv2.LINE_AA
-                )
-
-            try:
-                if self.left_Pos1 is not None and self.right_Pos1 is not None:
-                    cv2.line(
-                        imgInput,
-                        (self.left_Pos1, linePos_1 + 30),
-                        (self.left_Pos1, linePos_1 - 30),
-                        (255, 128, 64),
-                        1
-                    )
-
-                    cv2.line(
-                        imgInput,
-                        (self.right_Pos1, linePos_1 + 30),
-                        (self.right_Pos1, linePos_1 - 30),
-                        (64, 128, 255),
-                        1
-                    )
-
-                if self.left_Pos2 is not None and self.right_Pos2 is not None:
-                    cv2.line(
-                        imgInput,
-                        (self.left_Pos2, linePos_2 + 30),
-                        (self.left_Pos2, linePos_2 - 30),
-                        (255, 128, 64),
-                        1
-                    )
-
-                    cv2.line(
-                        imgInput,
-                        (self.right_Pos2, linePos_2 + 30),
-                        (self.right_Pos2, linePos_2 - 30),
-                        (64, 128, 255),
-                        1
-                    )
-
-                cv2.line(
-                    imgInput,
-                    (0, linePos_1),
-                    (640, linePos_1),
-                    (255, 255, 64),
-                    1
-                )
-
-                cv2.line(
-                    imgInput,
-                    (0, linePos_2),
-                    (640, linePos_2),
-                    (255, 255, 64),
-                    1
-                )
-
-                if self.center is not None:
-                    center_y = int((linePos_1 + linePos_2) / 2)
-
-                    cv2.line(
-                        imgInput,
-                        (self.center - 20, center_y),
-                        (self.center + 20, center_y),
-                        (0, 0, 255),
-                        2
-                    )
-
-                    cv2.line(
-                        imgInput,
-                        (self.center, center_y - 20),
-                        (self.center, center_y + 20),
-                        (0, 0, 255),
-                        2
-                    )
-
-            except Exception:
-                pass
-
-            # Yellow sign bounding box
-            if self.yellow_w is not None and self.yellow_h is not None:
+            # Draw yellow object bounding box
+            if (
+                self.yellow_x is not None
+                and self.yellow_y is not None
+                and self.yellow_w is not None
+                and self.yellow_h is not None
+            ):
                 cv2.rectangle(
                     imgInput,
                     (self.yellow_x, self.yellow_y),
@@ -317,11 +221,11 @@ class CVThread(threading.Thread):
                     2
                 )
 
-            # Yellow sign debugging information
+            # Current yellow area
             cv2.putText(
                 imgInput,
                 'Yellow Area: %d' % int(self.yellow_area),
-                (30, 75),
+                (30, 70),
                 CVThread.font,
                 0.5,
                 (0, 255, 255),
@@ -329,6 +233,7 @@ class CVThread(threading.Thread):
                 cv2.LINE_AA
             )
 
+            # Trigger area
             cv2.putText(
                 imgInput,
                 'Trigger Area: %d' % YELLOW_TRIGGER_AREA,
@@ -340,10 +245,11 @@ class CVThread(threading.Thread):
                 cv2.LINE_AA
             )
 
+            # Detection status
             cv2.putText(
                 imgInput,
-                'Yellow: %s' % self.yellow_status,
-                (30, 115),
+                'Status: %s' % self.yellow_status,
+                (30, 120),
                 CVThread.font,
                 0.5,
                 (0, 255, 255),
@@ -409,95 +315,153 @@ class CVThread(threading.Thread):
         self.pause()
 
 
-    def _setWalkCommand(self, command):
-        # Do not send the same walking command repeatedly.
-        if command == self.drive_command:
-            return
-
-        if command == 'stop':
-            SpiderG.servoStop()
-        else:
-            SpiderG.walk(command)
-
-        self.drive_command = command
-
-
-    def findLineCtrl(self, posInput, setCenter):
-        # Stop if autonomous driving is disabled
-        # or if the black line cannot be found.
-        if not CVRun or posInput is None:
-            self._setWalkCommand('stop')
-            return
-
-        # Black line is on the right side.
+    def findLineCtrl(self, posInput, setCenter):#2
+        pass
+        '''
+        # if posInput:
         if posInput > (setCenter + findLineError):
-            self._setWalkCommand('turnright')
-
-        # Black line is on the left side.
+            # move.motorStop()
+            #turnRight
+            if CVRun:
+                move.move(80, 'no', 'right', 0.5)
+            else:
+                move.move(80, 'no', 'no', 0.5)
+            # time.sleep(0.2)
+            move.motorStop()
+            pass
         elif posInput < (setCenter - findLineError):
-            self._setWalkCommand('turnleft')
-
-        # Black line is near the center.
+            # move.motorStop()
+            #turnLeft
+            if CVRun:
+                move.move(80, 'no', 'left', 0.5)
+            else:
+                move.move(80, 'no', 'no', 0.5)
+            # time.sleep(0.2)
+            move.motorStop()
+            pass
         else:
-            self._setWalkCommand('forward')
+            if CVRun:
+                move.move(80, 'forward', 'no', 0.5)
+            else:
+                move.move(80, 'no', 'no', 0.5)
+            #forward
+            pass
+        # else:
+        #     pass
+        '''
+
+    def findlineCV(self, frame_image):
+
+        # Stop processing if autonomous mode is not active.
+        if Camera.modeSelect != 'findlineCV':
+            self.pause()
+            return
 
 
-    def _checkYellowSign(self, frame_image):
+        # ============================================================
+        # RIGHT TURN STATE
+        # ============================================================
+        #
+        # Do not use time.sleep() here.
+        # Camera processing continues while the robot is turning.
+        #
+        # ============================================================
+
+        if self.turning_right:
+
+            if time.monotonic() >= self.turn_end_time:
+
+                # Resume forward walking after the right turn.
+                if Camera.modeSelect == 'findlineCV':
+                    SpiderG.walk('forward')
+
+                self.turning_right = False
+                self.yellow_status = 'LOCKED'
+
+                print('[ACTION] RIGHT TURN END')
+                print('[AUTO] FORWARD RESUMED')
+
+            self.pause()
+            return
+
+
+        # ============================================================
+        # YELLOW COLOR DETECTION
+        # ============================================================
+
         hsv = cv2.cvtColor(
             frame_image,
             cv2.COLOR_BGR2HSV
         )
 
-        mask = cv2.inRange(
+        yellow_mask = cv2.inRange(
             hsv,
             YELLOW_LOWER,
             YELLOW_UPPER
         )
 
-        mask = cv2.erode(
-            mask,
+        # Remove small noise
+        yellow_mask = cv2.erode(
+            yellow_mask,
             None,
             iterations=2
         )
 
-        mask = cv2.dilate(
-            mask,
+        yellow_mask = cv2.dilate(
+            yellow_mask,
             None,
             iterations=2
         )
 
-        cnts = cv2.findContours(
-            mask.copy(),
+        contours = cv2.findContours(
+            yellow_mask.copy(),
             cv2.RETR_EXTERNAL,
             cv2.CHAIN_APPROX_SIMPLE
         )[-2]
 
-        # Reset current-frame information.
+
+        # Reset current frame information
         self.yellow_area = 0.0
         self.yellow_x = None
         self.yellow_y = None
         self.yellow_w = None
         self.yellow_h = None
 
-        # No yellow object detected.
-        if len(cnts) == 0:
+
+        # ============================================================
+        # NO YELLOW OBJECT
+        # ============================================================
+
+        if len(contours) == 0:
+
             self.yellow_confirm_count = 0
 
+            # Previous sign disappeared.
+            # Allow detection of the next yellow sign.
             if self.yellow_latched:
                 self.yellow_latched = False
-                print('[YELLOW] Sign cleared - detector armed')
+
+                print(
+                    '[YELLOW] Sign cleared - detector armed'
+                )
 
             self.yellow_status = 'SEARCHING'
-            return False
 
-        # Use only the largest yellow contour.
-        c = max(
-            cnts,
+            self.pause()
+            return
+
+
+        # ============================================================
+        # USE THE LARGEST YELLOW AREA
+        # ============================================================
+
+        largest_contour = max(
+            contours,
             key=cv2.contourArea
         )
 
         self.yellow_area = float(
-            cv2.contourArea(c)
+            cv2.contourArea(largest_contour)
         )
 
         (
@@ -505,17 +469,21 @@ class CVThread(threading.Thread):
             self.yellow_y,
             self.yellow_w,
             self.yellow_h
-        ) = cv2.boundingRect(c)
+        ) = cv2.boundingRect(largest_contour)
 
-        # ----------------------------------------------------
-        # Duplicate detection prevention
-        # ----------------------------------------------------
+
+        # ============================================================
+        # DUPLICATE DETECTION PREVENTION
+        # ============================================================
+
         if self.yellow_latched:
+
             self.yellow_confirm_count = 0
 
-            # Arm the detector again only after
-            # the previous yellow sign becomes small enough.
+            # Rearm only after the old yellow sign
+            # becomes sufficiently small.
             if self.yellow_area < YELLOW_RELEASE_AREA:
+
                 self.yellow_latched = False
                 self.yellow_status = 'SEARCHING'
 
@@ -526,12 +494,22 @@ class CVThread(threading.Thread):
             else:
                 self.yellow_status = 'LOCKED'
 
-            return False
+            self.pause()
+            return
 
-        # ----------------------------------------------------
-        # Yellow sign trigger
-        # ----------------------------------------------------
+
+        # ============================================================
+        # PARAM TUNING - Yellow Sign Area
+        #
+        # Increase YELLOW_TRIGGER_AREA:
+        #     Turn closer to the yellow sign.
+        #
+        # Decrease YELLOW_TRIGGER_AREA:
+        #     Turn earlier.
+        # ============================================================
+
         if self.yellow_area >= YELLOW_TRIGGER_AREA:
+
             self.yellow_confirm_count += 1
 
             self.yellow_status = (
@@ -551,177 +529,69 @@ class CVThread(threading.Thread):
                 )
             )
 
-            # Confirm only after consecutive detections.
-            if self.yellow_confirm_count >= YELLOW_CONFIRM_FRAMES:
+
+            # ========================================================
+            # YELLOW SIGN CONFIRMED
+            # ========================================================
+
+            if (
+                self.yellow_confirm_count
+                >= YELLOW_CONFIRM_FRAMES
+            ):
+
                 self.yellow_latched = True
                 self.yellow_confirm_count = 0
                 self.yellow_status = 'TURNING RIGHT'
 
                 print('[YELLOW] Yellow sign detected!')
+
                 print(
                     '[YELLOW] Area: %d'
                     % int(self.yellow_area)
                 )
+
                 print(
                     '[YELLOW] Trigger Area: %d'
                     % YELLOW_TRIGGER_AREA
                 )
 
                 print('[ACTION] RIGHT TURN START')
+
                 print(
                     '[ACTION] Turn Time: %.2f sec'
                     % RIGHT_TURN_TIME
                 )
 
-                # Turn right.
-                self._setWalkCommand('turnright')
 
                 # ====================================================
                 # PARAM TUNING - Right Turn Time
-                # Increase RIGHT_TURN_TIME for a larger right turn.
-                # Decrease RIGHT_TURN_TIME for a smaller right turn.
+                #
+                # Increase RIGHT_TURN_TIME:
+                #     Larger right turn.
+                #
+                # Decrease RIGHT_TURN_TIME:
+                #     Smaller right turn.
                 # ====================================================
-                time.sleep(RIGHT_TURN_TIME)
 
-                # Stop the right-turn command exactly after
-                # RIGHT_TURN_TIME.
-                self._setWalkCommand('stop')
+                if Camera.modeSelect == 'findlineCV':
 
-                print('[ACTION] RIGHT TURN END')
-                print('[AUTO] Line tracking resumed')
+                    SpiderG.walk('turnright')
 
-                return True
+                    self.turning_right = True
+
+                    self.turn_end_time = (
+                        time.monotonic()
+                        + RIGHT_TURN_TIME
+                    )
+
 
         else:
+
+            # Yellow object exists,
+            # but it is still too small.
             self.yellow_confirm_count = 0
             self.yellow_status = 'APPROACHING'
 
-        return False
-
-
-    def findlineCV(self, frame_image):
-
-        # ============================================================
-        # 1. Check the yellow sign first.
-        # ============================================================
-        #
-        # PARAM TUNING - Yellow Sign Area
-        #
-        # Increase YELLOW_TRIGGER_AREA:
-        #     Robot approaches closer before turning.
-        #
-        # Decrease YELLOW_TRIGGER_AREA:
-        #     Robot turns earlier.
-        #
-        # ============================================================
-        if self._checkYellowSign(frame_image):
-            self.pause()
-            return
-
-        # ============================================================
-        # 2. Black line detection
-        # ============================================================
-        frame_findline = cv2.cvtColor(
-            frame_image,
-            cv2.COLOR_BGR2GRAY
-        )
-
-        _, frame_findline = cv2.threshold(
-            frame_findline,
-            0,
-            255,
-            cv2.THRESH_OTSU
-        )
-
-        frame_findline = cv2.erode(
-            frame_findline,
-            None,
-            iterations=6
-        )
-
-        colorPos_1 = frame_findline[linePos_1]
-        colorPos_2 = frame_findline[linePos_2]
-
-        self.center = None
-        centers = []
-
-        try:
-            lineIndex_Pos1 = np.where(
-                colorPos_1 == lineColorSet
-            )[0]
-
-            lineIndex_Pos2 = np.where(
-                colorPos_2 == lineColorSet
-            )[0]
-
-            # Upper scan line
-            if lineIndex_Pos1.size > 0:
-                self.left_Pos1 = int(
-                    lineIndex_Pos1[0]
-                )
-
-                self.right_Pos1 = int(
-                    lineIndex_Pos1[-1]
-                )
-
-                self.center_Pos1 = int(
-                    (
-                        self.left_Pos1
-                        + self.right_Pos1
-                    ) / 2
-                )
-
-                centers.append(
-                    self.center_Pos1
-                )
-
-            else:
-                self.left_Pos1 = None
-                self.right_Pos1 = None
-                self.center_Pos1 = None
-
-            # Lower scan line
-            if lineIndex_Pos2.size > 0:
-                self.left_Pos2 = int(
-                    lineIndex_Pos2[0]
-                )
-
-                self.right_Pos2 = int(
-                    lineIndex_Pos2[-1]
-                )
-
-                self.center_Pos2 = int(
-                    (
-                        self.left_Pos2
-                        + self.right_Pos2
-                    ) / 2
-                )
-
-                centers.append(
-                    self.center_Pos2
-                )
-
-            else:
-                self.left_Pos2 = None
-                self.right_Pos2 = None
-                self.center_Pos2 = None
-
-            # Average the detected centers.
-            if centers:
-                self.center = int(
-                    sum(centers) / len(centers)
-                )
-
-        except Exception:
-            self.center = None
-
-        # ============================================================
-        # 3. Spider walking control
-        # ============================================================
-        self.findLineCtrl(
-            self.center,
-            320
-        )
 
         self.pause()
 
@@ -897,29 +767,15 @@ class Camera(BaseCamera):
             # read current frame
             if os_version == "bookworm":
                 img = camera.capture_array()
-                img = cv2.cvtColor(
-                    img,
-                    cv2.COLOR_RGB2BGR
-                )
-
             else:
-                ret, img = camera.read()
-
-                if not ret:
-                    continue
+                _, img = camera.read()
+            img = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
             if Camera.modeSelect == 'none':
                 switch.switch(1, 0)
 
-                # Stop autonomous driving completely.
-                if cvt.CVMode == 'findlineCV':
-                    cvt._setWalkCommand('stop')
-
+                # Mark CV thread as stopped.
+                # This resets autonomous state on the next START.
                 cvt.CVMode = 'none'
-
-                cvt.yellow_confirm_count = 0
-                cvt.yellow_latched = False
-                cvt.yellow_status = 'SEARCHING'
-                cvt.drive_command = None
 
                 cvt.pause()
             else:
