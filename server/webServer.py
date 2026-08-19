@@ -68,10 +68,20 @@ def replace_num(initial,new_num):   #Call this function to replace data in '.txt
 
 def functionSelect(command_input, response):
     global functionMode
-    
-    if 'findColor' == command_input:
-        flask_app.modeselect('findColor')
 
+    # FC Control START - Autonomous Driving
+    if 'findColor' == command_input:
+
+        # Start yellow sign detection mode.
+        # The function name 'findlineCV' is reused,
+        # but line tracking is NOT used.
+        flask_app.modeselect('findlineCV')
+
+        # Start moving forward immediately.
+        SpiderG.walk('forward')
+
+        print('[AUTO] Autonomous driving started')
+        print('[AUTO] FORWARD START')
     elif 'motionGet' == command_input:
         flask_app.modeselect('watchDog')
 

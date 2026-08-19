@@ -45,7 +45,7 @@ YELLOW_UPPER = np.array([40, 255, 255])
 # Increase this value to turn closer to the yellow sign.
 # Decrease this value to turn earlier.
 # ============================================================
-YELLOW_TRIGGER_AREA = 18000
+YELLOW_TRIGGER_AREA = 25000
 
 
 # ============================================================
@@ -53,7 +53,7 @@ YELLOW_TRIGGER_AREA = 18000
 # Increase this value for a larger right turn.
 # Decrease this value for a smaller right turn.
 # ============================================================
-RIGHT_TURN_TIME = 2.0
+RIGHT_TURN_TIME = 4.0
 
 
 # Number of consecutive frames required to confirm detection
