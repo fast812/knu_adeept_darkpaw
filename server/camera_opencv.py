@@ -35,6 +35,11 @@ colorLower = np.array([24, 100, 100])
 # AUTONOMOUS DRIVING SETTINGS
 # ============================================================
 
+
+# ============================================================
+# YELLOW SIGN - LEFT TURN
+# ============================================================
+
 # Yellow color range in HSV
 YELLOW_LOWER = np.array([20, 100, 100])
 YELLOW_UPPER = np.array([40, 255, 255])
@@ -42,27 +47,62 @@ YELLOW_UPPER = np.array([40, 255, 255])
 
 # ============================================================
 # PARAM TUNING - Yellow Sign Area
+#
 # Increase this value to turn closer to the yellow sign.
 # Decrease this value to turn earlier.
 # ============================================================
-YELLOW_TRIGGER_AREA = 25000
+
+YELLOW_TRIGGER_AREA = 30000
 
 
 # ============================================================
-# PARAM TUNING - Right Turn Time
-# Increase this value for a larger right turn.
-# Decrease this value for a smaller right turn.
+# PARAM TUNING - Left Turn Time
+#
+# Increase this value for a larger left turn.
+# Decrease this value for a smaller left turn.
 # ============================================================
-RIGHT_TURN_TIME = 4.0
+
+LEFT_TURN_TIME = 4.5
 
 
-# Number of consecutive frames required to confirm detection
+# Number of consecutive frames required
+# to confirm the yellow sign.
 YELLOW_CONFIRM_FRAMES = 3
 
 
-# Yellow area must become smaller than this value
+# The previous yellow sign must become smaller than this value
 # before the next yellow sign can be detected.
 YELLOW_RELEASE_AREA = 3000
+
+
+# ============================================================
+# RED SIGN - STOP
+# ============================================================
+
+# Red is located at both ends of the HSV Hue range,
+# so two HSV ranges are used.
+
+RED_LOWER_1 = np.array([0, 100, 100])
+RED_UPPER_1 = np.array([10, 255, 255])
+
+RED_LOWER_2 = np.array([170, 100, 100])
+RED_UPPER_2 = np.array([179, 255, 255])
+
+
+# ============================================================
+# PARAM TUNING - Red Sign Area
+#
+# Increase this value to stop closer to the red sign.
+# Decrease this value to stop earlier.
+# ============================================================
+
+RED_TRIGGER_AREA = 30000
+
+
+# Number of consecutive frames required
+# to confirm the red stop sign.
+RED_CONFIRM_FRAMES = 3
+
 
 def get_rpi_os_version():
     try:
@@ -126,7 +166,10 @@ class CVThread(threading.Thread):
 
         self.center = None
 
-        # Autonomous yellow sign detection
+        # ============================================================
+        # Yellow sign detection status
+        # ============================================================
+
         self.yellow_area = 0.0
         self.yellow_x = None
         self.yellow_y = None
@@ -137,8 +180,26 @@ class CVThread(threading.Thread):
         self.yellow_latched = False
         self.yellow_status = 'SEARCHING'
 
-        # Right turn state
-        self.turning_right = False
+
+        # ============================================================
+        # Red stop sign detection status
+        # ============================================================
+
+        self.red_area = 0.0
+        self.red_x = None
+        self.red_y = None
+        self.red_w = None
+        self.red_h = None
+
+        self.red_confirm_count = 0
+        self.red_status = 'SEARCHING'
+
+
+        # ============================================================
+        # Left turn state
+        # ============================================================
+
+        self.turning_left = False
         self.turn_end_time = 0.0
 
         super(CVThread, self).__init__(*args, **kwargs)
@@ -154,9 +215,11 @@ class CVThread(threading.Thread):
 
     def mode(self, invar, imgInput):
 
-        # Reset autonomous driving state
-        # when autonomous mode starts.
+        # Reset autonomous driving status
+        # when AUTO mode starts.
         if invar == 'findlineCV' and self.CVMode != 'findlineCV':
+
+            # Yellow sign status
             self.yellow_area = 0.0
             self.yellow_x = None
             self.yellow_y = None
@@ -167,7 +230,18 @@ class CVThread(threading.Thread):
             self.yellow_latched = False
             self.yellow_status = 'SEARCHING'
 
-            self.turning_right = False
+            # Red stop sign status
+            self.red_area = 0.0
+            self.red_x = None
+            self.red_y = None
+            self.red_w = None
+            self.red_h = None
+
+            self.red_confirm_count = 0
+            self.red_status = 'SEARCHING'
+
+            # Left turn status
+            self.turning_left = False
             self.turn_end_time = 0.0
 
         self.CVMode = invar
@@ -191,7 +265,10 @@ class CVThread(threading.Thread):
 
         elif self.CVMode == 'findlineCV':
 
-            # Autonomous driving status
+            # ========================================================
+            # AUTO DRIVE
+            # ========================================================
+
             cv2.putText(
                 imgInput,
                 'AUTO DRIVE',
@@ -203,7 +280,11 @@ class CVThread(threading.Thread):
                 cv2.LINE_AA
             )
 
-            # Draw yellow object bounding box
+
+            # ========================================================
+            # YELLOW SIGN bounding box
+            # ========================================================
+
             if (
                 self.yellow_x is not None
                 and self.yellow_y is not None
@@ -221,7 +302,33 @@ class CVThread(threading.Thread):
                     2
                 )
 
-            # Current yellow area
+
+            # ========================================================
+            # RED SIGN bounding box
+            # ========================================================
+
+            if (
+                self.red_x is not None
+                and self.red_y is not None
+                and self.red_w is not None
+                and self.red_h is not None
+            ):
+                cv2.rectangle(
+                    imgInput,
+                    (self.red_x, self.red_y),
+                    (
+                        self.red_x + self.red_w,
+                        self.red_y + self.red_h
+                    ),
+                    (0, 0, 255),
+                    2
+                )
+
+
+            # ========================================================
+            # YELLOW SIGN DEBUG
+            # ========================================================
+
             cv2.putText(
                 imgInput,
                 'Yellow Area: %d' % int(self.yellow_area),
@@ -233,10 +340,9 @@ class CVThread(threading.Thread):
                 cv2.LINE_AA
             )
 
-            # Trigger area
             cv2.putText(
                 imgInput,
-                'Trigger Area: %d' % YELLOW_TRIGGER_AREA,
+                'Yellow Trigger: %d' % YELLOW_TRIGGER_AREA,
                 (30, 95),
                 CVThread.font,
                 0.5,
@@ -245,14 +351,51 @@ class CVThread(threading.Thread):
                 cv2.LINE_AA
             )
 
-            # Detection status
             cv2.putText(
                 imgInput,
-                'Status: %s' % self.yellow_status,
+                'Yellow Status: %s' % self.yellow_status,
                 (30, 120),
                 CVThread.font,
                 0.5,
                 (0, 255, 255),
+                1,
+                cv2.LINE_AA
+            )
+
+
+            # ========================================================
+            # RED SIGN DEBUG
+            # ========================================================
+
+            cv2.putText(
+                imgInput,
+                'Red Area: %d' % int(self.red_area),
+                (30, 150),
+                CVThread.font,
+                0.5,
+                (0, 0, 255),
+                1,
+                cv2.LINE_AA
+            )
+
+            cv2.putText(
+                imgInput,
+                'Red Trigger: %d' % RED_TRIGGER_AREA,
+                (30, 175),
+                CVThread.font,
+                0.5,
+                (0, 0, 255),
+                1,
+                cv2.LINE_AA
+            )
+
+            cv2.putText(
+                imgInput,
+                'Red Status: %s' % self.red_status,
+                (30, 200),
+                CVThread.font,
+                0.5,
+                (0, 0, 255),
                 1,
                 cv2.LINE_AA
             )
@@ -352,33 +495,34 @@ class CVThread(threading.Thread):
 
     def findlineCV(self, frame_image):
 
-        # Stop processing if autonomous mode is not active.
+        # ============================================================
+        # AUTO MODE CHECK
+        # ============================================================
+
         if Camera.modeSelect != 'findlineCV':
             self.pause()
             return
 
 
         # ============================================================
-        # RIGHT TURN STATE
-        # ============================================================
+        # LEFT TURN STATE
         #
-        # Do not use time.sleep() here.
-        # Camera processing continues while the robot is turning.
-        #
+        # While the robot is turning left,
+        # yellow and red sign detection is NOT performed.
         # ============================================================
 
-        if self.turning_right:
+        if self.turning_left:
 
             if time.monotonic() >= self.turn_end_time:
 
-                # Resume forward walking after the right turn.
+                # Resume forward walking after the left turn.
                 if Camera.modeSelect == 'findlineCV':
                     SpiderG.walk('forward')
 
-                self.turning_right = False
+                self.turning_left = False
                 self.yellow_status = 'LOCKED'
 
-                print('[ACTION] RIGHT TURN END')
+                print('[ACTION] LEFT TURN END')
                 print('[AUTO] FORWARD RESUMED')
 
             self.pause()
@@ -386,13 +530,170 @@ class CVThread(threading.Thread):
 
 
         # ============================================================
-        # YELLOW COLOR DETECTION
+        # Convert camera image to HSV
         # ============================================================
 
         hsv = cv2.cvtColor(
             frame_image,
             cv2.COLOR_BGR2HSV
         )
+
+
+        # ============================================================
+        # 1. RED STOP SIGN DETECTION
+        #
+        # RED has the highest priority.
+        # ============================================================
+
+        red_mask_1 = cv2.inRange(
+            hsv,
+            RED_LOWER_1,
+            RED_UPPER_1
+        )
+
+        red_mask_2 = cv2.inRange(
+            hsv,
+            RED_LOWER_2,
+            RED_UPPER_2
+        )
+
+        red_mask = cv2.bitwise_or(
+            red_mask_1,
+            red_mask_2
+        )
+
+        # Remove small noise
+        red_mask = cv2.erode(
+            red_mask,
+            None,
+            iterations=2
+        )
+
+        red_mask = cv2.dilate(
+            red_mask,
+            None,
+            iterations=2
+        )
+
+        red_contours = cv2.findContours(
+            red_mask.copy(),
+            cv2.RETR_EXTERNAL,
+            cv2.CHAIN_APPROX_SIMPLE
+        )[-2]
+
+
+        # Reset current red information
+        self.red_area = 0.0
+        self.red_x = None
+        self.red_y = None
+        self.red_w = None
+        self.red_h = None
+
+
+        if len(red_contours) > 0:
+
+            largest_red = max(
+                red_contours,
+                key=cv2.contourArea
+            )
+
+            self.red_area = float(
+                cv2.contourArea(largest_red)
+            )
+
+            (
+                self.red_x,
+                self.red_y,
+                self.red_w,
+                self.red_h
+            ) = cv2.boundingRect(largest_red)
+
+
+            # ========================================================
+            # PARAM TUNING - Red Sign Area
+            # ========================================================
+
+            if self.red_area >= RED_TRIGGER_AREA:
+
+                self.red_confirm_count += 1
+
+                self.red_status = (
+                    'CANDIDATE %d/%d'
+                    % (
+                        self.red_confirm_count,
+                        RED_CONFIRM_FRAMES
+                    )
+                )
+
+                print(
+                    '[RED] Candidate %d/%d - Area: %d'
+                    % (
+                        self.red_confirm_count,
+                        RED_CONFIRM_FRAMES,
+                        int(self.red_area)
+                    )
+                )
+
+
+                # ====================================================
+                # RED STOP SIGN CONFIRMED
+                # ====================================================
+
+                if (
+                    self.red_confirm_count
+                    >= RED_CONFIRM_FRAMES
+                ):
+
+                    self.red_confirm_count = 0
+
+                    self.red_status = 'STOPPED'
+                    self.yellow_status = 'STOPPED'
+
+                    print('[RED] Red stop sign detected!')
+
+                    print(
+                        '[RED] Area: %d'
+                        % int(self.red_area)
+                    )
+
+                    print(
+                        '[RED] Trigger Area: %d'
+                        % RED_TRIGGER_AREA
+                    )
+
+                    print('[ACTION] STOP')
+
+
+                    # Stop the robot completely.
+                    SpiderG.move_init()
+                    SpiderG.servoStop()
+
+
+                    # End autonomous driving mode.
+                    Camera.modeSelect = 'none'
+                    self.CVMode = 'none'
+
+                    self.pause()
+                    return
+
+
+            else:
+
+                self.red_confirm_count = 0
+                self.red_status = 'APPROACHING'
+
+
+        else:
+
+            self.red_confirm_count = 0
+            self.red_status = 'SEARCHING'
+
+
+        # ============================================================
+        # 2. YELLOW SIGN DETECTION
+        #
+        # Yellow sign = LEFT TURN
+        # ============================================================
 
         yellow_mask = cv2.inRange(
             hsv,
@@ -413,14 +714,14 @@ class CVThread(threading.Thread):
             iterations=2
         )
 
-        contours = cv2.findContours(
+        yellow_contours = cv2.findContours(
             yellow_mask.copy(),
             cv2.RETR_EXTERNAL,
             cv2.CHAIN_APPROX_SIMPLE
         )[-2]
 
 
-        # Reset current frame information
+        # Reset current yellow information
         self.yellow_area = 0.0
         self.yellow_x = None
         self.yellow_y = None
@@ -429,16 +730,17 @@ class CVThread(threading.Thread):
 
 
         # ============================================================
-        # NO YELLOW OBJECT
+        # NO YELLOW SIGN
         # ============================================================
 
-        if len(contours) == 0:
+        if len(yellow_contours) == 0:
 
             self.yellow_confirm_count = 0
 
-            # Previous sign disappeared.
+            # Previous yellow sign disappeared.
             # Allow detection of the next yellow sign.
             if self.yellow_latched:
+
                 self.yellow_latched = False
 
                 print(
@@ -455,13 +757,13 @@ class CVThread(threading.Thread):
         # USE THE LARGEST YELLOW AREA
         # ============================================================
 
-        largest_contour = max(
-            contours,
+        largest_yellow = max(
+            yellow_contours,
             key=cv2.contourArea
         )
 
         self.yellow_area = float(
-            cv2.contourArea(largest_contour)
+            cv2.contourArea(largest_yellow)
         )
 
         (
@@ -469,18 +771,18 @@ class CVThread(threading.Thread):
             self.yellow_y,
             self.yellow_w,
             self.yellow_h
-        ) = cv2.boundingRect(largest_contour)
+        ) = cv2.boundingRect(largest_yellow)
 
 
         # ============================================================
-        # DUPLICATE DETECTION PREVENTION
+        # DUPLICATE YELLOW SIGN PREVENTION
         # ============================================================
 
         if self.yellow_latched:
 
             self.yellow_confirm_count = 0
 
-            # Rearm only after the old yellow sign
+            # Rearm only after the previous yellow sign
             # becomes sufficiently small.
             if self.yellow_area < YELLOW_RELEASE_AREA:
 
@@ -492,6 +794,7 @@ class CVThread(threading.Thread):
                 )
 
             else:
+
                 self.yellow_status = 'LOCKED'
 
             self.pause()
@@ -541,7 +844,7 @@ class CVThread(threading.Thread):
 
                 self.yellow_latched = True
                 self.yellow_confirm_count = 0
-                self.yellow_status = 'TURNING RIGHT'
+                self.yellow_status = 'TURNING LEFT'
 
                 print('[YELLOW] Yellow sign detected!')
 
@@ -555,39 +858,39 @@ class CVThread(threading.Thread):
                     % YELLOW_TRIGGER_AREA
                 )
 
-                print('[ACTION] RIGHT TURN START')
+                print('[ACTION] LEFT TURN START')
 
                 print(
                     '[ACTION] Turn Time: %.2f sec'
-                    % RIGHT_TURN_TIME
+                    % LEFT_TURN_TIME
                 )
 
 
                 # ====================================================
-                # PARAM TUNING - Right Turn Time
+                # PARAM TUNING - Left Turn Time
                 #
-                # Increase RIGHT_TURN_TIME:
-                #     Larger right turn.
+                # Increase LEFT_TURN_TIME:
+                #     Larger left turn.
                 #
-                # Decrease RIGHT_TURN_TIME:
-                #     Smaller right turn.
+                # Decrease LEFT_TURN_TIME:
+                #     Smaller left turn.
                 # ====================================================
 
                 if Camera.modeSelect == 'findlineCV':
 
-                    SpiderG.walk('turnright')
+                    SpiderG.walk('turnleft')
 
-                    self.turning_right = True
+                    self.turning_left = True
 
                     self.turn_end_time = (
                         time.monotonic()
-                        + RIGHT_TURN_TIME
+                        + LEFT_TURN_TIME
                     )
 
 
         else:
 
-            # Yellow object exists,
+            # Yellow sign exists,
             # but it is still too small.
             self.yellow_confirm_count = 0
             self.yellow_status = 'APPROACHING'
